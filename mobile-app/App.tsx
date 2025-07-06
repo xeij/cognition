@@ -8,31 +8,81 @@ import { StyleSheet, View } from 'react-native';
 import FeedScreen from './src/screens/FeedScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import { AppProvider } from './src/context/AppContext';
+import ErrorBoundary from './src/components/ErrorBoundary';
 
 const Stack = createStackNavigator();
 
+const AppContent = () => (
+  <NavigationContainer>
+    <View style={styles.container}>
+      <StatusBar style="light" backgroundColor="#000000" />
+      <Stack.Navigator
+        screenOptions={{
+          headerShown: false,
+          cardStyle: { backgroundColor: '#000000' },
+          animationEnabled: true,
+          gestureEnabled: true,
+        }}
+      >
+        <Stack.Screen 
+          name="Feed" 
+          component={FeedScreen}
+          options={{
+            // Add error boundary at screen level
+            cardStyleInterpolator: ({ current }) => ({
+              cardStyle: {
+                opacity: current.progress,
+              },
+            }),
+          }}
+        />
+        <Stack.Screen 
+          name="Settings" 
+          component={SettingsScreen}
+          options={{
+            // Add error boundary at screen level
+            cardStyleInterpolator: ({ current }) => ({
+              cardStyle: {
+                opacity: current.progress,
+              },
+            }),
+          }}
+        />
+      </Stack.Navigator>
+    </View>
+  </NavigationContainer>
+);
+
 export default function App() {
+  const handleGlobalError = (error: Error, errorInfo: any) => {
+    // Log to crash reporting service (e.g., Sentry, Crashlytics)
+    console.error('Global app error:', error, errorInfo);
+    
+    // You could send to analytics service here
+    // Analytics.recordError(error, errorInfo);
+  };
+
   return (
-    <SafeAreaProvider>
-      <AppProvider>
-        <NavigationContainer>
-          <View style={styles.container}>
-            <StatusBar style="light" backgroundColor="#000000" />
-            <Stack.Navigator
-              screenOptions={{
-                headerShown: false,
-                cardStyle: { backgroundColor: '#000000' },
-                animationEnabled: true,
-                gestureEnabled: true,
-              }}
+    <ErrorBoundary 
+      onError={handleGlobalError}
+      resetOnPropsChange={true}
+    >
+      <SafeAreaProvider>
+        <ErrorBoundary
+          onError={handleGlobalError}
+          resetKeys={['app-context']}
+        >
+          <AppProvider>
+            <ErrorBoundary
+              onError={handleGlobalError}
+              resetKeys={['navigation']}
             >
-              <Stack.Screen name="Feed" component={FeedScreen} />
-              <Stack.Screen name="Settings" component={SettingsScreen} />
-            </Stack.Navigator>
-          </View>
-        </NavigationContainer>
-      </AppProvider>
-    </SafeAreaProvider>
+              <AppContent />
+            </ErrorBoundary>
+          </AppProvider>
+        </ErrorBoundary>
+      </SafeAreaProvider>
+    </ErrorBoundary>
   );
 }
 

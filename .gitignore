@@ -44,7 +44,7 @@ env/
 venv/
 ENV/
 env.bak/
-venv.bak/
+env.bak/
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -200,4 +200,169 @@ scraped_data/
 
 # Backup files
 *.bak
-*.backup 
+*.backup
+
+# SECURITY ENHANCEMENTS - Additional sensitive patterns
+
+# API Keys and Secrets
+**/secrets/
+**/private/
+**/*.secret
+**/*.private
+**/credentials/
+**/*credentials*
+**/*secret*
+**/*private*
+**/auth/
+**/*auth*
+**/tokens/
+**/*token*
+**/keys/
+**/*keys*
+
+# Environment and Configuration
+.env.*
+!.env.example
+!.env.template
+!.env.sample
+config/local*
+config/development*
+config/production*
+config/staging*
+**/*config*.local*
+**/*config*.dev*
+**/*config*.prod*
+**/*config*.stage*
+
+# Certificate files
+*.crt
+*.cer
+*.p12
+*.pfx
+*.p7b
+*.p7c
+*.der
+*.csr
+*.key
+*.keystore
+*.jks
+*.truststore
+
+# SSH keys
+id_rsa
+id_rsa.pub
+id_dsa
+id_dsa.pub
+id_ecdsa
+id_ecdsa.pub
+id_ed25519
+id_ed25519.pub
+known_hosts
+authorized_keys
+
+# Cloud provider configs
+**/.aws/
+**/.gcp/
+**/.azure/
+**/gcp-*.json
+**/aws-*.json
+**/azure-*.json
+**/*-serviceaccount.json
+**/*-service-account.json
+
+# Database dumps and exports
+*.sql
+*.dump
+*.backup
+*.dmp
+**/db-backup*
+**/database-backup*
+**/dump*
+
+# Application-specific sensitive files
+**/uploads/
+**/user-uploads/
+**/media/private/
+**/storage/private/
+**/cache/sessions/
+**/logs/sensitive/
+**/analytics/raw/
+**/reports/sensitive/
+
+# Development and debugging
+.vscode/settings.json
+.vscode/launch.json
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/usage.statistics.xml
+.idea/dictionaries/
+.idea/shelf/
+*.heapsnapshot
+*.cpuprofile
+*.trace
+
+# Package manager files with potential sensitive info
+npm-shrinkwrap.json
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Mobile app specific
+**/ios/Podfile.lock
+**/android/app/release/
+**/android/app/debug/
+**/android/app/src/main/assets/
+**/android/keystores/
+**/ios/build/
+**/ios/DerivedData/
+**/ios/Pods/
+**/ios/*.xcworkspace
+**/ios/*.xcuserstate
+
+# Testing with sensitive data
+**/test-data/
+**/fixtures/sensitive/
+**/mocks/sensitive/
+**/*test*.sensitive.*
+**/*spec*.sensitive.*
+
+# Deployment artifacts
+**/deployment/
+**/deploy/
+**/.deployment/
+**/infrastructure/live/
+**/infrastructure/prod/
+**/infrastructure/production/
+**/scripts/deploy/
+**/scripts/deployment/
+
+# Monitoring and analytics
+**/monitoring/sensitive/
+**/analytics/sensitive/
+**/metrics/sensitive/
+**/alerts/sensitive/
+
+# Backup and recovery
+**/backups/
+**/recovery/
+**/snapshots/
+**/*.backup
+**/*.restore
+**/*.recovery
+
+# User-generated content that might be sensitive
+**/user-content/
+**/user-data/
+**/user-files/
+**/user-uploads/
+**/profile-images/
+**/attachments/
+
+# Legacy and deprecated files
+**/legacy/
+**/deprecated/
+**/old/
+**/archive/
+**/*.old
+**/*.deprecated
+**/*.legacy 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -23,7 +23,28 @@ interface FactCardProps {
   isDisliked: boolean;
 }
 
-const FactCard: React.FC<FactCardProps> = ({
+// Memoized color mapping for categories
+const CATEGORY_COLORS: { [key: string]: string } = {
+  history: '#FFD700',
+  science: '#4A90E2',
+  culture: '#FF6B6B',
+  nature: '#4CAF50',
+  technology: '#9C27B0',
+  art: '#FF9800',
+  philosophy: '#795548',
+  politics: '#607D8B',
+  sports: '#2196F3',
+  entertainment: '#E91E63',
+};
+
+// Memoized difficulty icons
+const DIFFICULTY_ICONS: { [key: string]: string } = {
+  beginner: '🟢',
+  intermediate: '🟡',
+  advanced: '🔴',
+};
+
+const FactCard: React.FC<FactCardProps> = React.memo(({
   fact,
   isActive,
   onLike,
@@ -32,10 +53,10 @@ const FactCard: React.FC<FactCardProps> = ({
   isLiked,
   isDisliked,
 }) => {
-  const [likeAnimation] = useState(new Animated.Value(1));
-  const [dislikeAnimation] = useState(new Animated.Value(1));
-  const [shareAnimation] = useState(new Animated.Value(1));
-  const [fadeAnimation] = useState(new Animated.Value(0));
+  const [likeAnimation] = useState(() => new Animated.Value(1));
+  const [dislikeAnimation] = useState(() => new Animated.Value(1));
+  const [shareAnimation] = useState(() => new Animated.Value(1));
+  const [fadeAnimation] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
     if (isActive) {
@@ -47,9 +68,9 @@ const FactCard: React.FC<FactCardProps> = ({
     } else {
       fadeAnimation.setValue(0);
     }
-  }, [isActive]);
+  }, [isActive, fadeAnimation]);
 
-  const animateButton = (animation: Animated.Value, callback: () => void) => {
+  const animateButton = useCallback((animation: Animated.Value, callback: () => void) => {
     Animated.sequence([
       Animated.timing(animation, {
         toValue: 0.8,
@@ -63,40 +84,43 @@ const FactCard: React.FC<FactCardProps> = ({
       }),
     ]).start();
     callback();
-  };
+  }, []);
 
-  const getCategoryColor = (category: string) => {
-    const colors: { [key: string]: string } = {
-      history: '#FFD700',
-      science: '#4A90E2',
-      culture: '#FF6B6B',
-      nature: '#4CAF50',
-      technology: '#9C27B0',
-      art: '#FF9800',
-      philosophy: '#795548',
-      politics: '#607D8B',
-      sports: '#2196F3',
-      entertainment: '#E91E63',
-    };
-    return colors[category.toLowerCase()] || '#FFFFFF';
-  };
+  const categoryColor = useMemo(() => {
+    return CATEGORY_COLORS[fact.category.toLowerCase()] || '#FFFFFF';
+  }, [fact.category]);
 
-  const getDifficultyIcon = (difficulty: string) => {
-    switch (difficulty) {
-      case 'beginner':
-        return '🟢';
-      case 'intermediate':
-        return '🟡';
-      case 'advanced':
-        return '🔴';
-      default:
-        return '⚪';
-    }
-  };
+  const difficultyIcon = useMemo(() => {
+    return DIFFICULTY_ICONS[fact.difficulty] || '⚪';
+  }, [fact.difficulty]);
 
-  const formatReadingTime = (minutes: number) => {
-    return `${minutes} min read`;
-  };
+  const formattedReadingTime = useMemo(() => {
+    return `${fact.readingTime} min read`;
+  }, [fact.readingTime]);
+
+  const formattedDate = useMemo(() => {
+    return new Date(fact.createdAt).toLocaleDateString();
+  }, [fact.createdAt]);
+
+  const renderTags = useMemo(() => {
+    return fact.tags.map((tag, index) => (
+      <View key={`${tag}-${index}`} style={styles.tag}>
+        <Text style={styles.tagText}>#{tag}</Text>
+      </View>
+    ));
+  }, [fact.tags]);
+
+  const handleLike = useCallback(() => {
+    animateButton(likeAnimation, onLike);
+  }, [animateButton, likeAnimation, onLike]);
+
+  const handleDislike = useCallback(() => {
+    animateButton(dislikeAnimation, onDislike);
+  }, [animateButton, dislikeAnimation, onDislike]);
+
+  const handleShare = useCallback(() => {
+    animateButton(shareAnimation, onShare);
+  }, [animateButton, shareAnimation, onShare]);
 
   return (
     <Animated.View style={[styles.container, { opacity: fadeAnimation }]}>
@@ -111,17 +135,17 @@ const FactCard: React.FC<FactCardProps> = ({
             <View
               style={[
                 styles.categoryTag,
-                { backgroundColor: getCategoryColor(fact.category) },
+                { backgroundColor: categoryColor },
               ]}
             >
               <Text style={styles.categoryText}>{fact.category.toUpperCase()}</Text>
             </View>
             <Text style={styles.difficultyText}>
-              {getDifficultyIcon(fact.difficulty)} {fact.difficulty}
+              {difficultyIcon} {fact.difficulty}
             </Text>
           </View>
           <View style={styles.metaContainer}>
-            <Text style={styles.readingTime}>{formatReadingTime(fact.readingTime)}</Text>
+            <Text style={styles.readingTime}>{formattedReadingTime}</Text>
             <Text style={styles.popularity}>⭐ {fact.popularity}/100</Text>
           </View>
         </View>
@@ -134,18 +158,14 @@ const FactCard: React.FC<FactCardProps> = ({
 
         {/* Tags */}
         <View style={styles.tagsContainer}>
-          {fact.tags.map((tag, index) => (
-            <View key={index} style={styles.tag}>
-              <Text style={styles.tagText}>#{tag}</Text>
-            </View>
-          ))}
+          {renderTags}
         </View>
 
         {/* Source */}
         <View style={styles.sourceContainer}>
           <Text style={styles.sourceText}>Source: {fact.source}</Text>
           <Text style={styles.dateText}>
-            {new Date(fact.createdAt).toLocaleDateString()}
+            {formattedDate}
           </Text>
         </View>
       </ScrollView>
@@ -159,7 +179,7 @@ const FactCard: React.FC<FactCardProps> = ({
               styles.dislikeButton,
               isDisliked && styles.dislikedButton,
             ]}
-            onPress={() => animateButton(dislikeAnimation, onDislike)}
+            onPress={handleDislike}
           >
             <Ionicons
               name={isDisliked ? 'thumbs-down' : 'thumbs-down-outline'}
@@ -176,7 +196,7 @@ const FactCard: React.FC<FactCardProps> = ({
               styles.likeButton,
               isLiked && styles.likedButton,
             ]}
-            onPress={() => animateButton(likeAnimation, onLike)}
+            onPress={handleLike}
           >
             <Ionicons
               name={isLiked ? 'heart' : 'heart-outline'}
@@ -189,7 +209,7 @@ const FactCard: React.FC<FactCardProps> = ({
         <Animated.View style={{ transform: [{ scale: shareAnimation }] }}>
           <TouchableOpacity
             style={[styles.actionButton, styles.shareButton]}
-            onPress={() => animateButton(shareAnimation, onShare)}
+            onPress={handleShare}
           >
             <Ionicons name="share-outline" size={24} color="#FFFFFF" />
           </TouchableOpacity>
@@ -197,7 +217,7 @@ const FactCard: React.FC<FactCardProps> = ({
       </View>
     </Animated.View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: {

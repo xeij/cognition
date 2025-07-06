@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -18,6 +18,7 @@ import { useApp } from '../context/AppContext';
 import { Fact } from '../context/AppContext';
 import FactCard from '../components/FactCard';
 import LoadingSpinner from '../components/LoadingSpinner';
+import ErrorBoundary from '../components/ErrorBoundary';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -25,7 +26,7 @@ interface FeedScreenProps {
   navigation: any;
 }
 
-const FeedScreen: React.FC<FeedScreenProps> = ({ navigation }) => {
+const FeedScreen: React.FC<FeedScreenProps> = React.memo(({ navigation }) => {
   const { state, loadFacts, loadMoreFacts, likeFact, dislikeFact, shareFact, markFactAsRead } = useApp();
   const flatListRef = useRef<FlatList>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -40,31 +41,43 @@ const FeedScreen: React.FC<FeedScreenProps> = ({ navigation }) => {
     }, 3000);
 
     return () => clearTimeout(timer);
-  }, [currentIndex, state.facts]);
+  }, [currentIndex, state.facts, markFactAsRead]);
 
-  const handleRefresh = async () => {
+  const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    await loadFacts(true);
-    setRefreshing(false);
-  };
+    try {
+      await loadFacts(true);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadFacts]);
 
-  const handleLoadMore = async () => {
+  const handleLoadMore = useCallback(async () => {
     if (state.hasMore && !state.loading) {
       await loadMoreFacts();
     }
-  };
+  }, [state.hasMore, state.loading, loadMoreFacts]);
 
-  const handleLike = async (factId: string) => {
+  const handleLike = useCallback(async (factId: string) => {
     await likeFact(factId);
-  };
+  }, [likeFact]);
 
-  const handleDislike = async (factId: string) => {
+  const scrollToNext = useCallback(() => {
+    if (currentIndex < state.facts.length - 1) {
+      flatListRef.current?.scrollToIndex({
+        index: currentIndex + 1,
+        animated: true,
+      });
+    }
+  }, [currentIndex, state.facts.length]);
+
+  const handleDislike = useCallback(async (factId: string) => {
     await dislikeFact(factId);
     // Auto-scroll to next fact
     scrollToNext();
-  };
+  }, [dislikeFact, scrollToNext]);
 
-  const handleShare = async (fact: Fact) => {
+  const handleShare = useCallback(async (fact: Fact) => {
     try {
       const options = {
         message: `${fact.title}\n\n${fact.content}\n\nShared from Cognition App`,
@@ -75,18 +88,9 @@ const FeedScreen: React.FC<FeedScreenProps> = ({ navigation }) => {
     } catch (error) {
       console.error('Error sharing fact:', error);
     }
-  };
+  }, [shareFact]);
 
-  const scrollToNext = () => {
-    if (currentIndex < state.facts.length - 1) {
-      flatListRef.current?.scrollToIndex({
-        index: currentIndex + 1,
-        animated: true,
-      });
-    }
-  };
-
-  const onViewableItemsChanged = ({ viewableItems }: any) => {
+  const onViewableItemsChanged = useCallback(({ viewableItems }: any) => {
     if (viewableItems.length > 0) {
       const index = viewableItems[0].index;
       setCurrentIndex(index);
@@ -96,13 +100,13 @@ const FeedScreen: React.FC<FeedScreenProps> = ({ navigation }) => {
         handleLoadMore();
       }
     }
-  };
+  }, [state.facts.length, handleLoadMore]);
 
-  const viewabilityConfig = {
+  const viewabilityConfig = useMemo(() => ({
     itemVisiblePercentThreshold: 50,
-  };
+  }), []);
 
-  const renderFact = ({ item, index }: { item: Fact; index: number }) => (
+  const renderFact = useCallback(({ item, index }: { item: Fact; index: number }) => (
     <View style={styles.factContainer}>
       <FactCard
         fact={item}
@@ -114,9 +118,13 @@ const FeedScreen: React.FC<FeedScreenProps> = ({ navigation }) => {
         isDisliked={state.user?.interactions.disliked.includes(item.id) || false}
       />
     </View>
-  );
+  ), [currentIndex, handleLike, handleDislike, handleShare, state.user?.interactions.liked, state.user?.interactions.disliked]);
 
-  const renderHeader = () => (
+  const navigateToSettings = useCallback(() => {
+    navigation.navigate('Settings');
+  }, [navigation]);
+
+  const renderHeader = useCallback(() => (
     <View style={styles.header}>
       <View style={styles.headerLeft}>
         <Text style={styles.headerTitle}>Cognition</Text>
@@ -124,14 +132,14 @@ const FeedScreen: React.FC<FeedScreenProps> = ({ navigation }) => {
       </View>
       <TouchableOpacity
         style={styles.settingsButton}
-        onPress={() => navigation.navigate('Settings')}
+        onPress={navigateToSettings}
       >
         <Ionicons name="settings-outline" size={24} color="#FFFFFF" />
       </TouchableOpacity>
     </View>
-  );
+  ), [navigateToSettings]);
 
-  const renderFooter = () => {
+  const renderFooter = useCallback(() => {
     if (!state.loading) return null;
     return (
       <View style={styles.footer}>
@@ -139,7 +147,28 @@ const FeedScreen: React.FC<FeedScreenProps> = ({ navigation }) => {
         <Text style={styles.loadingText}>Loading more facts...</Text>
       </View>
     );
-  };
+  }, [state.loading]);
+
+  const refreshControl = useMemo(() => (
+    <RefreshControl
+      refreshing={refreshing}
+      onRefresh={handleRefresh}
+      tintColor="#FFFFFF"
+      colors={['#FFFFFF']}
+    />
+  ), [refreshing, handleRefresh]);
+
+  const getItemLayout = useCallback((data: any, index: number) => ({
+    length: SCREEN_HEIGHT - 100,
+    offset: (SCREEN_HEIGHT - 100) * index,
+    index,
+  }), []);
+
+  const keyExtractor = useCallback((item: Fact) => item.id, []);
+
+  const retryLoadFacts = useCallback(() => {
+    loadFacts(true);
+  }, [loadFacts]);
 
   if (state.loading && state.facts.length === 0) {
     return (
@@ -158,7 +187,7 @@ const FeedScreen: React.FC<FeedScreenProps> = ({ navigation }) => {
           <Text style={styles.errorSubtext}>{state.error}</Text>
           <TouchableOpacity
             style={styles.retryButton}
-            onPress={() => loadFacts(true)}
+            onPress={retryLoadFacts}
           >
             <Text style={styles.retryButtonText}>Try Again</Text>
           </TouchableOpacity>
@@ -174,7 +203,7 @@ const FeedScreen: React.FC<FeedScreenProps> = ({ navigation }) => {
         ref={flatListRef}
         data={state.facts}
         renderItem={renderFact}
-        keyExtractor={(item) => item.id}
+        keyExtractor={keyExtractor}
         pagingEnabled
         showsVerticalScrollIndicator={false}
         onViewableItemsChanged={onViewableItemsChanged}
@@ -182,19 +211,8 @@ const FeedScreen: React.FC<FeedScreenProps> = ({ navigation }) => {
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.5}
         ListFooterComponent={renderFooter}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            tintColor="#FFFFFF"
-            colors={['#FFFFFF']}
-          />
-        }
-        getItemLayout={(data, index) => ({
-          length: SCREEN_HEIGHT - 100,
-          offset: (SCREEN_HEIGHT - 100) * index,
-          index,
-        })}
+        refreshControl={refreshControl}
+        getItemLayout={getItemLayout}
         initialNumToRender={3}
         maxToRenderPerBatch={3}
         windowSize={5}
@@ -202,7 +220,7 @@ const FeedScreen: React.FC<FeedScreenProps> = ({ navigation }) => {
       />
     </SafeAreaView>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: {

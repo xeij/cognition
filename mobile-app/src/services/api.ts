@@ -13,6 +13,141 @@ const api = axios.create({
   },
 });
 
+// Cache configuration
+interface CacheItem<T> {
+  data: T;
+  timestamp: number;
+  expiresAt: number;
+}
+
+interface CacheConfig {
+  ttl: number; // Time to live in milliseconds
+  maxItems?: number;
+}
+
+class ApiCache {
+  private cache = new Map<string, CacheItem<any>>();
+  private defaultConfig: CacheConfig = {
+    ttl: 5 * 60 * 1000, // 5 minutes default
+    maxItems: 100
+  };
+
+  private configs: { [key: string]: CacheConfig } = {
+    facts: { ttl: 10 * 60 * 1000, maxItems: 200 }, // 10 minutes for facts
+    recommendations: { ttl: 5 * 60 * 1000, maxItems: 50 }, // 5 minutes for recommendations
+    categories: { ttl: 60 * 60 * 1000, maxItems: 10 }, // 1 hour for categories
+    user: { ttl: 30 * 60 * 1000, maxItems: 20 }, // 30 minutes for user data
+    search: { ttl: 3 * 60 * 1000, maxItems: 50 }, // 3 minutes for search results
+  };
+
+  private getConfig(namespace: string): CacheConfig {
+    return this.configs[namespace] || this.defaultConfig;
+  }
+
+  private generateKey(namespace: string, params?: any): string {
+    if (!params) return namespace;
+    
+    // Sort params to ensure consistent keys
+    const sortedParams = Object.keys(params)
+      .sort()
+      .reduce((result, key) => {
+        result[key] = params[key];
+        return result;
+      }, {} as any);
+    
+    return `${namespace}:${JSON.stringify(sortedParams)}`;
+  }
+
+  set<T>(namespace: string, data: T, params?: any): void {
+    const config = this.getConfig(namespace);
+    const key = this.generateKey(namespace, params);
+    const now = Date.now();
+    
+    // Clean up expired items and enforce max items limit
+    this.cleanup(namespace);
+    
+    this.cache.set(key, {
+      data,
+      timestamp: now,
+      expiresAt: now + config.ttl
+    });
+  }
+
+  get<T>(namespace: string, params?: any): T | null {
+    const key = this.generateKey(namespace, params);
+    const item = this.cache.get(key);
+    
+    if (!item) return null;
+    
+    if (Date.now() > item.expiresAt) {
+      this.cache.delete(key);
+      return null;
+    }
+    
+    return item.data as T;
+  }
+
+  invalidate(namespace: string, params?: any): void {
+    if (params) {
+      const key = this.generateKey(namespace, params);
+      this.cache.delete(key);
+    } else {
+      // Invalidate all items in namespace
+      const prefix = `${namespace}:`;
+      for (const [key] of this.cache) {
+        if (key.startsWith(prefix) || key === namespace) {
+          this.cache.delete(key);
+        }
+      }
+    }
+  }
+
+  private cleanup(namespace: string): void {
+    const config = this.getConfig(namespace);
+    const now = Date.now();
+    
+    // Remove expired items
+    for (const [key, item] of this.cache) {
+      if (now > item.expiresAt) {
+        this.cache.delete(key);
+      }
+    }
+    
+    // Enforce max items limit for namespace
+    if (config.maxItems) {
+      const namespaceItems = Array.from(this.cache.entries())
+        .filter(([key]) => key.startsWith(namespace))
+        .sort(([, a], [, b]) => b.timestamp - a.timestamp); // Sort by newest first
+      
+      if (namespaceItems.length > config.maxItems) {
+        const itemsToRemove = namespaceItems.slice(config.maxItems);
+        itemsToRemove.forEach(([key]) => this.cache.delete(key));
+      }
+    }
+  }
+
+  clear(): void {
+    this.cache.clear();
+  }
+
+  getStats(): { size: number; namespaces: { [key: string]: number } } {
+    const namespaces: { [key: string]: number } = {};
+    
+    for (const [key] of this.cache) {
+      const namespace = key.split(':')[0];
+      namespaces[namespace] = (namespaces[namespace] || 0) + 1;
+    }
+    
+    return {
+      size: this.cache.size,
+      namespaces
+    };
+  }
+}
+
+// Global cache instance
+const cache = new ApiCache();
+
 // Request interceptor for adding auth tokens
 api.interceptors.request.use((config) => {
   // Add any authentication tokens here
@@ -46,24 +181,64 @@ export interface InteractionType {
 
 class ApiService {
   async getFacts(params: GetFactsParams): Promise<Fact[]> {
+    // Check cache first
+    const cacheKey = params;
+    const cachedFacts = cache.get<Fact[]>('facts', cacheKey);
+    
+    if (cachedFacts) {
+      console.log('Returning cached facts');
+      return cachedFacts;
+    }
+
     try {
       const response = await api.get('/facts', { params });
-      return response.data.facts || [];
+      const facts = response.data.facts || [];
+      
+      // Cache the results
+      cache.set('facts', facts, cacheKey);
+      
+      return facts;
     } catch (error) {
       console.error('Error fetching facts:', error);
+      
+      // Try to return stale cache data as fallback
+      const staleData = cache.get<Fact[]>('facts', cacheKey);
+      if (staleData) {
+        console.log('Returning stale cached facts as fallback');
+        return staleData;
+      }
+      
       // Return mock data for development
       return this.getMockFacts();
     }
   }
 
   async getRecommendedFacts(userId: string, limit = 10): Promise<Fact[]> {
+    const cacheKey = { userId, limit };
+    const cached = cache.get<Fact[]>('recommendations', cacheKey);
+    
+    if (cached) {
+      console.log('Returning cached recommendations');
+      return cached;
+    }
+
     try {
       const response = await api.get(`/recommendations/${userId}`, {
         params: { limit }
       });
-      return response.data.facts || [];
+      const facts = response.data.facts || [];
+      
+      cache.set('recommendations', facts, cacheKey);
+      return facts;
     } catch (error) {
       console.error('Error fetching recommended facts:', error);
+      
+      // Try stale cache as fallback
+      const staleData = cache.get<Fact[]>('recommendations', cacheKey);
+      if (staleData) {
+        return staleData;
+      }
+      
       return this.getMockFacts();
     }
   }
@@ -76,6 +251,16 @@ class ApiService {
         type,
         timestamp: new Date().toISOString()
       });
+      
+      // Invalidate relevant caches after recording interaction
+      cache.invalidate('recommendations', { userId });
+      cache.invalidate('user', { userId });
+      
+      // For like/dislike, also invalidate facts cache as it may affect popularity
+      if (type === 'like' || type === 'dislike') {
+        cache.invalidate('facts');
+      }
+      
     } catch (error) {
       console.error('Error recording interaction:', error);
     }
@@ -84,27 +269,61 @@ class ApiService {
   async updateUserPreferences(userId: string, preferences: any): Promise<void> {
     try {
       await api.put(`/users/${userId}/preferences`, preferences);
+      
+      // Invalidate user-related caches
+      cache.invalidate('user', { userId });
+      cache.invalidate('recommendations', { userId });
+      
     } catch (error) {
       console.error('Error updating user preferences:', error);
     }
   }
 
   async getFactById(factId: string): Promise<Fact | null> {
+    const cacheKey = { factId };
+    const cached = cache.get<Fact>('fact', cacheKey);
+    
+    if (cached) {
+      return cached;
+    }
+
     try {
       const response = await api.get(`/facts/${factId}`);
-      return response.data.fact || null;
+      const fact = response.data.fact || null;
+      
+      if (fact) {
+        cache.set('fact', fact, cacheKey);
+      }
+      
+      return fact;
     } catch (error) {
       console.error('Error fetching fact:', error);
-      return null;
+      
+      // Try stale cache
+      const staleData = cache.get<Fact>('fact', cacheKey);
+      return staleData || null;
     }
   }
 
   async searchFacts(query: string, limit = 10): Promise<Fact[]> {
+    // Don't cache empty queries
+    if (!query.trim()) return [];
+    
+    const cacheKey = { query: query.toLowerCase().trim(), limit };
+    const cached = cache.get<Fact[]>('search', cacheKey);
+    
+    if (cached) {
+      return cached;
+    }
+
     try {
       const response = await api.get('/search', {
         params: { q: query, limit }
       });
-      return response.data.facts || [];
+      const facts = response.data.facts || [];
+      
+      cache.set('search', facts, cacheKey);
+      return facts;
     } catch (error) {
       console.error('Error searching facts:', error);
       return [];
@@ -112,22 +331,63 @@ class ApiService {
   }
 
   async getCategories(): Promise<string[]> {
+    const cached = cache.get<string[]>('categories');
+    
+    if (cached) {
+      return cached;
+    }
+
     try {
       const response = await api.get('/categories');
-      return response.data.categories || [];
+      const categories = response.data.categories || [];
+      
+      cache.set('categories', categories);
+      return categories;
     } catch (error) {
       console.error('Error fetching categories:', error);
-      return ['history', 'science', 'culture', 'nature', 'technology', 'art'];
+      
+      // Try stale cache or return defaults
+      const staleData = cache.get<string[]>('categories');
+      return staleData || ['history', 'science', 'culture', 'nature', 'technology', 'art'];
     }
   }
 
   async getUserStats(userId: string): Promise<any> {
+    const cacheKey = { userId };
+    const cached = cache.get<any>('user', cacheKey);
+    
+    if (cached) {
+      return cached;
+    }
+
     try {
       const response = await api.get(`/users/${userId}/stats`);
-      return response.data || {};
+      const stats = response.data || {};
+      
+      cache.set('user', stats, cacheKey);
+      return stats;
     } catch (error) {
       console.error('Error fetching user stats:', error);
-      return {};
+      
+      const staleData = cache.get<any>('user', cacheKey);
+      return staleData || {};
+    }
+  }
+
+  // Cache management methods
+  clearCache(): void {
+    cache.clear();
+  }
+
+  getCacheStats(): { size: number; namespaces: { [key: string]: number } } {
+    return cache.getStats();
+  }
+
+  invalidateCache(namespace?: string, params?: any): void {
+    if (namespace) {
+      cache.invalidate(namespace, params);
+    } else {
+      cache.clear();
     }
   }
 
