@@ -14,7 +14,7 @@ const searchRoutes = require('./routes/search');
 const categoriesRoutes = require('./routes/categories');
 
 const logger = require('./utils/logger');
-const errorHandler = require('./middleware/errorHandler');
+const { errorHandler } = require('./middleware/errorHandler');
 const { connectToAWS } = require('./config/aws');
 
 const app = express();
